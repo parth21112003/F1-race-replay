@@ -9,13 +9,13 @@ from src.lib.season import get_season
 import logging
 
 def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True, ready_file=None, show_telemetry_viewer=True):
+  # Enable cache for fastf1 (must be before load_session)
+  enable_cache()
+
   print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
   session = load_session(year, round_number, session_type)
 
   print(f"Loaded session: {session.event['EventName']} - {session.event['RoundNumber']} - {session_type}")
-
-  # Enable cache for fastf1
-  enable_cache()
 
   if session_type == 'Q' or session_type == 'SQ':
 
@@ -106,7 +106,8 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
       session_info=session_info,
       session=session,
       enable_telemetry=True,
-      race_control_messages=race_telemetry.get('race_control_messages', [])
+      race_control_messages=race_telemetry.get('race_control_messages', []),
+      race_events=race_telemetry.get('race_events', [])
     )
 
 if __name__ == "__main__":
@@ -133,10 +134,12 @@ if __name__ == "__main__":
 
   if "--list-rounds" in sys.argv:
     list_rounds(year)
+    sys.exit(0)
   elif "--list-sprints" in sys.argv:
     list_sprints(year)
-  else:
-    playback_speed = 1
+    sys.exit(0)
+
+  playback_speed = 1
 
   if "--viewer" in sys.argv:
   

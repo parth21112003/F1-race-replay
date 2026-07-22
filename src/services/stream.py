@@ -145,7 +145,7 @@ class TelemetryStreamClient(QThread):
     while self.running and self.connected:
       try:
         # Receive data in chunks
-        chunk = self.socket.recv(4096).decode('utf-8')
+        chunk = self.socket.recv(65536).decode('utf-8')
         if not chunk:
           # Server closed connection
           self.connected = False

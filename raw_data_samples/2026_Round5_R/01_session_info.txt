@@ -1,0 +1,35 @@
+F1 RAW DATA — SESSION INFO
+==================================================
+Season:       2026
+Round:        5
+Session Type: Race
+==================================================
+
+EVENT SCHEDULE DATA (from FastF1 API):
+--------------------------------------------------
+  RoundNumber                    : 5
+  Country                        : Canada
+  Location                       : Montréal
+  OfficialEventName              : FORMULA 1 LENOVO GRAND PRIX DU CANADA 2026
+  EventDate                      : 2026-05-24 00:00:00
+  EventName                      : Canadian Grand Prix
+  EventFormat                    : sprint_qualifying
+  Session1                       : Practice 1
+  Session1Date                   : 2026-05-22 12:30:00-04:00
+  Session1DateUtc                : 2026-05-22 16:30:00
+  Session2                       : Sprint Qualifying
+  Session2Date                   : 2026-05-22 16:30:00-04:00
+  Session2DateUtc                : 2026-05-22 20:30:00
+  Session3                       : Sprint
+  Session3Date                   : 2026-05-23 12:00:00-04:00
+  Session3DateUtc                : 2026-05-23 16:00:00
+  Session4                       : Qualifying
+  Session4Date                   : 2026-05-23 16:00:00-04:00
+  Session4DateUtc                : 2026-05-23 20:00:00
+  Session5                       : Race
+  Session5Date                   : 2026-05-24 16:00:00-04:00
+  Session5DateUtc                : 2026-05-24 20:00:00
+  F1ApiSupport                   : True
+
+Total drivers in session: 22
+Driver numbers: ['12', '44', '3', '16', '6', '43', '30', '10', '55', '87', '81', '27', '5', '31', '18', '77', '11', '1', '63', '14', '23', '41']

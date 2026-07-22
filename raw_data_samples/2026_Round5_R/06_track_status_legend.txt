@@ -1,0 +1,8 @@
+TRACK STATUS CODES
+==============================
+  1 = All Clear (Green Flag)
+  2 = Yellow Flag
+  4 = Safety Car (SC)
+  5 = Red Flag
+  6 = Virtual Safety Car (VSC)
+  7 = VSC Ending

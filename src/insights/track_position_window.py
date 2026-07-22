@@ -518,13 +518,13 @@ class TrackPositionWindow(PitWallWindow):
     """
 
     def __init__(self):
-        super().__init__()
-        self.setWindowTitle("F1 Race Replay - Track Position Map")
-        self.setMinimumSize(520, 560)
         self._circuit_length_m: float | None = None
         self._driver_colors: dict[str, str] = {}
         self._color_idx = 0
         self._geometry_received = False
+        super().__init__()
+        self.setWindowTitle("F1 Race Replay - Track Position Map")
+        self.setMinimumSize(520, 560)
 
     def setup_ui(self):
         central = QWidget()

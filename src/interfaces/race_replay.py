@@ -31,7 +31,7 @@ class F1RaceReplayWindow(arcade.Window):
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
                  left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True,
                  session_info=None, session=None, enable_telemetry=False,
-                 race_control_messages=None):
+                 race_control_messages=None, race_events=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
         self.maximize()
@@ -53,6 +53,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.frames = frames
         self.track_statuses = track_statuses
         self.race_control_messages = race_control_messages or []
+        self.race_events = race_events or []
         self.n_frames = len(frames)
         self.drivers = list(drivers)
         self.playback_speed = PLAYBACK_SPEEDS[PLAYBACK_SPEEDS.index(playback_speed)] if playback_speed in PLAYBACK_SPEEDS else 1.0
@@ -306,6 +307,17 @@ class F1RaceReplayWindow(arcade.Window):
             }
         }
 
+        # Include race events up to current time
+        current_race_events = []
+        if self.race_events and current_frame:
+            frame_time = current_frame["t"]
+            for evt in self.race_events:
+                if evt["time"] <= frame_time:
+                    current_race_events.append(evt)
+                else:
+                    break  # events are sorted by time
+        payload["race_events"] = current_race_events
+
         # Send every ~2s so reconnecting clients receive geometry without special handling
         if hasattr(self, 'plot_x_ref') and int(self.frame_index) % 120 == 0:
             payload["track_geometry"] = {
@@ -446,16 +458,6 @@ class F1RaceReplayWindow(arcade.Window):
         sy = self.world_scale * y + self.ty
         return sx, sy
 
-    def _format_wind_direction(self, degrees):
-        if degrees is None:
-            return "N/A"
-        deg_norm = degrees % 360
-        dirs = [
-            "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-            "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
-        ]
-        idx = int((deg_norm / 22.5) + 0.5) % len(dirs)
-        return dirs[idx]
 
     def on_draw(self):
         self.clear()
@@ -716,6 +718,18 @@ class F1RaceReplayWindow(arcade.Window):
 
         self.last_leaderboard_order = [c for c, _, _, _ in driver_list]
         self.leaderboard_comp.set_entries(driver_list)
+
+        # Feature 2: Pass fastest-lap holder to the leaderboard component.
+        # Scan race_events for the most recent 'fastest_lap' event up to now.
+        fl_holder = None
+        if self.race_events:
+            for evt in self.race_events:
+                if evt.get("time", 0) > current_time:
+                    break
+                if evt.get("type") == "fastest_lap":
+                    fl_holder = evt.get("driver")
+        self.leaderboard_comp.set_fastest_lap(fl_holder)
+
         self.leaderboard_comp.draw(self)
         # expose rects for existing hit test compatibility if needed
         self.leaderboard_rects = self.leaderboard_comp.rects
@@ -840,6 +854,11 @@ class F1RaceReplayWindow(arcade.Window):
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
         elif symbol == arcade.key.I:
             self.session_info_comp.toggle_visibility() # toggle session info banner
+        elif symbol == arcade.key.M:
+            # Reopen the Insights Menu in a separate process
+            from src.run_session import launch_insights_menu
+            launch_insights_menu()
+            print("Reopening insights menu...")
 
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol == arcade.key.RIGHT:
@@ -869,6 +888,7 @@ class F1RaceReplayWindow(arcade.Window):
             return
         # default: clear selection if clicked elsewhere
         self.selected_driver = None
+        self.selected_drivers = []
         
     def on_mouse_motion(self, x: float, y: float, dx: float, dy: float):
         """Handle mouse motion for hover effects on progress bar and controls."""

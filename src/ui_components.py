@@ -242,7 +242,6 @@ class WeatherComponent(BaseComponent):
 
         # Track the bottom of the weather panel so info boxes can stack below it
         window.weather_bottom = last_y - 20
-
 class LeaderboardComponent(BaseComponent):
     def __init__(self, x: int, right_margin: int = 260, width: int = 240, visible=True):
         self.x = x
@@ -270,6 +269,19 @@ class LeaderboardComponent(BaseComponent):
         self.computed_gaps = {}
         self.computed_neighbor_gaps = {}
 
+        # ── Feature 2: Fastest-lap indicator ────────────────────────────
+        self._fastest_lap_holder: str | None = None  # driver code
+
+        # ── Feature 3: Pit-stop counter ──────────────────────────────────
+        self._pit_stop_counts: dict = {}   # {code: int}
+        self._was_in_pit: dict = {}        # {code: bool}  previous frame pit state
+
+        # ── Feature 4: Animated row swap ─────────────────────────────────
+        # Stores the *current rendered* Y for each driver; lerped toward target each frame.
+        self._display_y: dict = {}   # {code: float}
+        self._LERP_SPEED = 0.35      # fraction of gap closed per frame (0-1)
+        self._anim_initialized = False
+
     @property
     def visible(self) -> bool:
         return self._visible
@@ -291,10 +303,15 @@ class LeaderboardComponent(BaseComponent):
         """
         self._visible = True
 
+    def set_fastest_lap(self, driver_code: str | None):
+        """Call from the window whenever the fastest-lap holder changes."""
+        self._fastest_lap_holder = driver_code
+
     def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float]]):
         # entries sorted as expected
         self.entries = entries
         self._calculate_gaps()
+        self._update_enhancements(entries)
 
     def _calculate_gaps(self):
         self.computed_gaps = {}
@@ -327,6 +344,19 @@ class LeaderboardComponent(BaseComponent):
                 ahead_info = None
             
             self.computed_neighbor_gaps[code] = {"ahead": ahead_info}
+
+    def _update_enhancements(self, entries):
+        """Update pit-stop counts and display-Y targets."""
+        if not entries:
+            return
+
+        # Feature 3 — pit-stop counting (transition False→True = one new stop)
+        for code, _, pos, _ in entries:
+            currently_in_pit = bool(pos.get("in_pit", False))
+            was_in_pit = self._was_in_pit.get(code, False)
+            if not was_in_pit and currently_in_pit:
+                self._pit_stop_counts[code] = self._pit_stop_counts.get(code, 0) + 1
+            self._was_in_pit[code] = currently_in_pit
 
     def draw(self, window):
         # Skip rendering entirely if hidden
@@ -384,39 +414,73 @@ class LeaderboardComponent(BaseComponent):
 
         for i, (code, color, pos, progress_m) in enumerate(new_entries):
             current_pos = i + 1
-            top_y = leaderboard_y - 30 - ((current_pos - 1) * self.row_height)
+
+            # ── Feature 4: Animated row swap ─────────────────────────────
+            # The "target" Y is where the row mathematically belongs.
+            target_top_y = leaderboard_y - 30 - ((current_pos - 1) * self.row_height)
+            if not self._anim_initialized or code not in self._display_y:
+                # First time seeing this driver — snap straight to target, no lerp.
+                self._display_y[code] = float(target_top_y)
+            else:
+                # Lerp current rendered Y toward target Y.
+                cur = self._display_y[code]
+                self._display_y[code] = cur + (target_top_y - cur) * self._LERP_SPEED
+            top_y = self._display_y[code]
             bottom_y = top_y - self.row_height
             left_x = self.x
             right_x = self.x + self.width
             self.rects.append((code, left_x, bottom_y, right_x, top_y))
 
+            # ── Feature 5: Out-of-race fade ───────────────────────────────
+            is_out = (pos.get("rel_dist", 0) == 1)
+            # Alpha 70 for retired drivers, 255 for active
+            ROW_ALPHA = 70 if is_out else 255
+
             if code in self.selected:
                 rect = arcade.XYWH((left_x + right_x)/2, (top_y + bottom_y)/2, right_x - left_x, top_y - bottom_y)
-                arcade.draw_rect_filled(rect, arcade.color.LIGHT_GRAY)
-                text_color = arcade.color.BLACK
+                arcade.draw_rect_filled(rect, (211, 211, 211, ROW_ALPHA))
+                text_color = (0, 0, 0, ROW_ALPHA)
             else:
-                text_color = color
+                r, g, b = color[0], color[1], color[2]
+                text_color = (r, g, b, ROW_ALPHA)
 
-            text = f"{current_pos}. {code}" 
-            if pos.get("rel_dist",0) != 1:
-                out_text=""
-            else:
-                out_text="  OUT"
+            text = f"{current_pos}. {code}"
 
-            if pos.get("in_pit"):
-                driver_text = text
-                pit_text="  PIT"
-            else:
-                driver_text = text
-                pit_text = ""
+            # PIT / OUT indicators
+            in_pit = pos.get("in_pit", False)
+            pit_text = "  PIT" if in_pit else ""
 
-            arcade.Text(driver_text,left_x,top_y,text_color,16,anchor_x="left",anchor_y="top").draw()
-            
-            #PIT indicator in white
-            if pit_text:arcade.Text(pit_text, left_x + 80, top_y,arcade.color.WHITE,16,anchor_x="left",anchor_y="top").draw()
+            # OUT: show small faded tag instead of bold red
+            out_label = "  OUT" if is_out else ""
 
-            #OUT indicator in red
-            if out_text: arcade.Text(out_text, left_x + 80, top_y, (155,17,30), 16, anchor_x="left", anchor_y="top",bold=True).draw()
+            arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
+
+            # PIT indicator in white (faded if OUT)
+            if pit_text:
+                arcade.Text(pit_text, left_x + 80, top_y, (255, 255, 255, ROW_ALPHA), 16,
+                            anchor_x="left", anchor_y="top").draw()
+
+            # OUT indicator — faded italic-style (smaller, muted)
+            if out_label:
+                arcade.Text(out_label, left_x + 80, top_y, (200, 60, 60, ROW_ALPHA), 13,
+                            anchor_x="left", anchor_y="top", bold=True).draw()
+
+
+            # ── Feature 2: Fastest-lap indicator (purple dot) ─────────────
+            if self._fastest_lap_holder and code == self._fastest_lap_holder:
+                fl_dot_x = left_x + 130
+                fl_dot_y = top_y - self.row_height / 2
+                arcade.draw_circle_filled(fl_dot_x, fl_dot_y, 5, (175, 0, 210, ROW_ALPHA))
+                arcade.draw_circle_outline(fl_dot_x, fl_dot_y, 5, (220, 100, 255, ROW_ALPHA), 1)
+
+            # ── Feature 3: Pit-stop counter ───────────────────────────────
+            stop_count = self._pit_stop_counts.get(code, 0)
+            if stop_count > 0:
+                stop_label = f"{stop_count}S"
+                # Position the badge just left of the tyre icon area
+                badge_x = right_x - self.width // 3
+                arcade.Text(stop_label, badge_x, top_y, (160, 160, 160, ROW_ALPHA), 10,
+                            anchor_x="center", anchor_y="top", bold=True).draw()
 
             # Gap display (if enabled)
             if getattr(self, "show_neighbor_gaps", False):
@@ -461,7 +525,7 @@ class LeaderboardComponent(BaseComponent):
             if getattr(self, "show_neighbor_gaps", False) or getattr(self, "show_gaps", False):
                 gap_x = right_x - 36
                 if 'gap_text' in locals() and gap_text:
-                    gap_color = arcade.color.BLACK if code in self.selected else arcade.color.LIGHT_GRAY
+                    gap_color = (0, 0, 0, ROW_ALPHA) if code in self.selected else (190, 190, 190, ROW_ALPHA)
                     # Update and draw the reusable gap Text object
                     self._gap_text.text = gap_text
                     self._gap_text.x = gap_x
@@ -499,11 +563,12 @@ class LeaderboardComponent(BaseComponent):
                     else:
                         tyre_health_ratio = 1.0
 
-                arcade.draw_texture_rect(rect=rect, texture=tyre_texture, alpha=80)
+                tyre_alpha = max(40, int(80 * ROW_ALPHA / 255))
+                arcade.draw_texture_rect(rect=rect, texture=tyre_texture, alpha=tyre_alpha)
                 bright_height = icon_size * tyre_health_ratio
                 if bright_height > 0:
                     window.ctx.scissor = (int(tyre_icon_x - 8), int(tyre_icon_y - 8), int(icon_size), int(bright_height))
-                    arcade.draw_texture_rect(rect=rect, texture=tyre_texture, alpha=255)
+                    arcade.draw_texture_rect(rect=rect, texture=tyre_texture, alpha=int(255 * ROW_ALPHA / 255))
                     window.ctx.scissor = None
                     
                 try:
@@ -514,7 +579,7 @@ class LeaderboardComponent(BaseComponent):
                     life_display,
                     tyre_icon_x + 8,
                     tyre_icon_y - 8,
-                    arcade.color.WHITE,
+                    (255, 255, 255, ROW_ALPHA),
                     8,
                     bold=True,
                     anchor_x="center",
@@ -525,7 +590,7 @@ class LeaderboardComponent(BaseComponent):
                 drs_val = pos.get("drs", 0)
                 # DRS is active if value >= 10
                 is_drs_on = drs_val and int(drs_val) >= 10
-                drs_color = arcade.color.GREEN if is_drs_on else arcade.color.GRAY
+                drs_color = (0, 200, 0, ROW_ALPHA) if is_drs_on else (140, 140, 140, ROW_ALPHA)
                 
                 # Position dot to the left of the tyre icon
                 # tyre_icon_x is the center of the tyre icon
@@ -534,7 +599,8 @@ class LeaderboardComponent(BaseComponent):
 
                 arcade.draw_circle_filled(drs_dot_x, drs_dot_y, 4, drs_color)
 
-        
+        # Mark animation as initialized so lerp kicks in on subsequent frames
+        self._anim_initialized = True
 
         # Add text at the bottom of the leaderboard during lap 1 to alert the user to potential mis-ordering
         if new_entries[0][2].get("lap", 0) == 1:
@@ -1031,6 +1097,7 @@ class ControlsPopupComponent(BaseComponent):
             ("D", "Toggle DRS Zones"),
             ("B", "Toggle Progress Bar"),
             ("L", "Toggle Driver Labels"),
+            ("M", "Open Insights Menu"),
             ("H", "Toggle Help Popup"),
         ]
 
@@ -1728,6 +1795,30 @@ class RaceControlsComponent(BaseComponent):
         self._flash_button = button_name
         self._flash_timer = self._flash_duration
 
+    def _nearest_playback_speed_index(self, speed: float) -> int:
+        """Return the nearest supported speed index for arbitrary input."""
+        try:
+            current = float(speed)
+        except (TypeError, ValueError):
+            current = 1.0
+
+        return min(
+            range(len(self.PLAYBACK_SPEEDS)),
+            key=lambda index: abs(self.PLAYBACK_SPEEDS[index] - current),
+        )
+
+    def _next_playback_speed(self, speed: float) -> float:
+        """Return the next supported speed after snapping to the nearest one."""
+        current_index = self._nearest_playback_speed_index(speed)
+        next_index = min(current_index + 1, len(self.PLAYBACK_SPEEDS) - 1)
+        return self.PLAYBACK_SPEEDS[next_index]
+
+    def _previous_playback_speed(self, speed: float) -> float:
+        """Return the previous supported speed after snapping to the nearest one."""
+        current_index = self._nearest_playback_speed_index(speed)
+        previous_index = max(0, current_index - 1)
+        return self.PLAYBACK_SPEEDS[previous_index]
+
     def draw(self, window):
         # Skip rendering entirely if hidden
         if not self._visible:
@@ -1913,18 +2004,16 @@ class RaceControlsComponent(BaseComponent):
             return True
         elif self._point_in_rect(x, y, self.speed_increase_rect):
             if hasattr(window, 'playback_speed'):
-                # FIX: Use index lookup to increment speed.
-                if window.playback_speed < max(self.PLAYBACK_SPEEDS):
-                    current_index = self.PLAYBACK_SPEEDS.index(window.playback_speed)
-                    window.playback_speed = self.PLAYBACK_SPEEDS[min(current_index + 1, len(self.PLAYBACK_SPEEDS) - 1)]
+                next_speed = self._next_playback_speed(window.playback_speed)
+                if next_speed != window.playback_speed:
+                    window.playback_speed = next_speed
                     self.flash_button('speed_increase')
             return True
         elif self._point_in_rect(x, y, self.speed_decrease_rect):
             if hasattr(window, 'playback_speed'):
-                # FIX: Use index lookup to decrement speed safely within defined PLAYBACK_SPEEDS.
-                if window.playback_speed > min(self.PLAYBACK_SPEEDS):
-                    current_index = self.PLAYBACK_SPEEDS.index(window.playback_speed)
-                    window.playback_speed = self.PLAYBACK_SPEEDS[max(0, current_index - 1)]
+                previous_speed = self._previous_playback_speed(window.playback_speed)
+                if previous_speed != window.playback_speed:
+                    window.playback_speed = previous_speed
                     self.flash_button('speed_decrease')
             return True
         return False

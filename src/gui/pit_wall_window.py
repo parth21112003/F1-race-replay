@@ -3,12 +3,122 @@ from PySide6.QtCore import Qt
 from src.services.stream import TelemetryStreamClient
 
 
+# ── Premium dark-theme stylesheet (shared by all PitWallWindow subclasses) ──
+PITWALL_DARK_THEME = """
+QMainWindow {
+    background: #0d1117;
+    color: #e6edf3;
+}
+QWidget {
+    background: transparent;
+    color: #e6edf3;
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+}
+QStatusBar {
+    background: rgba(255, 255, 255, 0.03);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 11px;
+    padding: 2px 8px;
+}
+QLabel {
+    color: #e6edf3;
+}
+QScrollArea {
+    background: transparent;
+    border: none;
+}
+QScrollBar:vertical {
+    background: rgba(255, 255, 255, 0.03);
+    width: 6px;
+    border-radius: 3px;
+}
+QScrollBar::handle:vertical {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+    min-height: 30px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+QPushButton {
+    background: rgba(255, 255, 255, 0.06);
+    color: #e6edf3;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+}
+QPushButton:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(225, 6, 0, 0.4);
+}
+QPushButton:pressed {
+    background: rgba(225, 6, 0, 0.15);
+}
+QComboBox {
+    background: rgba(255, 255, 255, 0.06);
+    color: #e6edf3;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+}
+QComboBox:hover {
+    border-color: rgba(225, 6, 0, 0.4);
+}
+QComboBox::drop-down {
+    border: none;
+    padding-right: 8px;
+}
+QComboBox QAbstractItemView {
+    background: #161b22;
+    color: #e6edf3;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    selection-background-color: rgba(225, 6, 0, 0.25);
+    outline: none;
+}
+QLineEdit {
+    background: rgba(255, 255, 255, 0.06);
+    color: #e6edf3;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+}
+QLineEdit:focus {
+    border-color: rgba(225, 6, 0, 0.5);
+}
+QGroupBox {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    margin-top: 12px;
+    padding: 16px 12px 12px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #e6edf3;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 6px;
+    color: rgba(255, 255, 255, 0.7);
+}
+"""
+
+
 class PitWallWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, auto_start_client: bool = True):
         super().__init__()
+        self._auto_start_client = auto_start_client
         
         # Default window properties
         self.setGeometry(100, 100, 1000, 700)
+        
+        # Apply premium dark theme
+        self.setStyleSheet(PITWALL_DARK_THEME)
         
         # Data tracking
         self.message_count = 0
@@ -25,18 +135,32 @@ class PitWallWindow(QMainWindow):
         # Call subclass UI setup
         self.setup_ui()
         
-        # Start client
-        self.client.start()
+        if self._auto_start_client:
+            self.start_telemetry_client()
+
+    def start_telemetry_client(self):
+        """Start the telemetry client if it is not already running."""
+        if self.client and not self.client.isRunning():
+            self.client.start()
+
+    def stop_telemetry_client(self):
+        """Stop the telemetry client and wait briefly for shutdown."""
+        if self.client and self.client.isRunning():
+            self.client.stop()
+            if not self.client.wait(2000):  # Wait max 2 seconds
+                print("Warning: Telemetry client did not stop in time")
     
     def _setup_status_bar(self):
         """Initialize the status bar with connection indicator."""
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         
-        self.connection_label = QLabel("Disconnected")
+        self.connection_label = QLabel("⬤ Disconnected")
+        self.connection_label.setStyleSheet("color: #f85149; font-weight: bold; font-size: 11px;")
         self.status_bar.addPermanentWidget(self.connection_label)
         
         self.messages_label = QLabel("Messages: 0")
+        self.messages_label.setStyleSheet("color: rgba(255,255,255,0.4); font-size: 11px;")
         self.status_bar.addPermanentWidget(self.messages_label)
     
     def _handle_data_received(self, data):
@@ -49,14 +173,15 @@ class PitWallWindow(QMainWindow):
     
     def _handle_connection_status(self, status):
         """Internal handler for connection status changes."""
-        self.connection_label.setText(f"Status: {status}")
-        
         if status == "Connected":
-            self.connection_label.setStyleSheet("color: green; font-weight: bold;")
+            self.connection_label.setText("⬤ Connected")
+            self.connection_label.setStyleSheet("color: #3fb950; font-weight: bold; font-size: 11px;")
         elif status == "Connecting...":
-            self.connection_label.setStyleSheet("color: orange; font-weight: bold;")
+            self.connection_label.setText("⬤ Connecting…")
+            self.connection_label.setStyleSheet("color: #d29922; font-weight: bold; font-size: 11px;")
         else:
-            self.connection_label.setStyleSheet("color: red; font-weight: bold;")
+            self.connection_label.setText("⬤ Disconnected")
+            self.connection_label.setStyleSheet("color: #f85149; font-weight: bold; font-size: 11px;")
         
         # Notify subclass
         self.on_connection_status_changed(status)
@@ -71,10 +196,7 @@ class PitWallWindow(QMainWindow):
     def closeEvent(self, event):
         """Handle window close event - cleanup telemetry client."""
         try:
-            if self.client.isRunning():
-                self.client.stop()
-                if not self.client.wait(2000):  # Wait max 2 seconds
-                    print("Warning: Telemetry client did not stop in time")
+            self.stop_telemetry_client()
         except Exception as e:
             print(f"Error during telemetry cleanup: {e}")
         finally:

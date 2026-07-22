@@ -2,7 +2,7 @@ import math
 import os
 import pickle
 import sys
-from datetime import timedelta, date
+from datetime import timedelta
 from multiprocessing import Pool, cpu_count
 
 import fastf1
@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from src.lib.settings import get_settings
+from src.lib.season import get_season
 from src.lib.time import parse_time_string
 from src.lib.tyres import get_tyre_compound_int
 
@@ -97,6 +98,9 @@ def _process_single_driver(args):
         drs_all.append(drs_lap)
         throttle_all.append(throttle_lap)
         brake_all.append(brake_lap)
+
+        # Update cumulative distance for the next lap
+        total_dist_so_far += float(d_lap[-1]) if len(d_lap) > 0 else 0.0
 
     if not t_all:
         return None
@@ -540,12 +544,15 @@ def get_race_telemetry(session, session_type="R"):
     event_name = str(session).replace(" ", "_")
     cache_suffix = "sprint" if session_type == "S" else "race"
 
+    # Get computed data location from settings
+    computed_dir = get_settings().computed_data_location
+
     # Check if this data has already been computed
 
     try:
         if "--refresh-data" not in sys.argv:
             with open(
-                f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
+                f"{computed_dir}/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
             ) as f:
                 frames = pickle.load(f)
                 print(f"Loaded precomputed {cache_suffix} telemetry data.")
@@ -798,7 +805,7 @@ def get_race_telemetry(session, session_type="R"):
             shifted.append((start-global_t_min,end-global_t_min))
         pit_windows_shifted[drv]=shifted
     
-    print("PIT WINDOWS: ", pit_windows)
+    # pit_windows computed for pit stop detection (debug removed)
 
     # 5. Build the frames + LIVE LEADERBOARD
     frames = []
@@ -912,14 +919,27 @@ def get_race_telemetry(session, session_type="R"):
 
     # 5d. Compute Safety Car positions for each frame
     _compute_safety_car_positions(frames, formatted_track_statuses, session)
+
+    # 5e. Detect race events (overtakes, pit stops, fastest laps, safety car)
+    from src.insights.race_event_detector import RaceEventDetector
+    print("Detecting race events...")
+    detector = RaceEventDetector(frames, formatted_track_statuses, total_laps=int(max_lap_number))
+    race_events = detector.detect_all()
+    print(f"Detected {len(race_events)} race events")
+
+    # NOTE: AI commentary enrichment has been moved to on-demand UI buttons
+    # (AI Race Strategist and Generate Summary) to avoid freezing the loading
+    # pipeline with thousands of API calls. Events are stored with template
+    # commentary and enriched by Gemini only when the user requests it.
+
     print("completed telemetry extraction...")
     print("Saving to cache file...")
     # If computed_data/ directory doesn't exist, create it
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
+    if not os.path.exists(computed_dir):
+        os.makedirs(computed_dir)
 
     # Save using pickle (10-100x faster than JSON)
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+    with open(f"{computed_dir}/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
         pickle.dump({
             "frames": frames,
             "driver_colors": get_driver_colors(session),
@@ -927,6 +947,7 @@ def get_race_telemetry(session, session_type="R"):
             "race_control_messages": formatted_rc_messages,
             "total_laps": int(max_lap_number),
             "max_tyre_life": max_tyre_life_map,
+            "race_events": race_events,
         }, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     print("Saved Successfully!")
@@ -938,6 +959,7 @@ def get_race_telemetry(session, session_type="R"):
         "race_control_messages": formatted_rc_messages,
         "total_laps": int(max_lap_number),
         "max_tyre_life": max_tyre_life_map,
+        "race_events": race_events,
     }
 
 
@@ -1333,11 +1355,14 @@ def get_quali_telemetry(session, session_type="Q"):
     event_name = str(session).replace(" ", "_")
     cache_suffix = "sprintquali" if session_type == "SQ" else "quali"
 
+    # Get computed data location from settings
+    computed_dir = get_settings().computed_data_location
+
     # Check if this data has already been computed
     try:
         if "--refresh-data" not in sys.argv:
             with open(
-                f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
+                f"{computed_dir}/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
             ) as f:
                 data = pickle.load(f)
                 print(f"Loaded precomputed {cache_suffix} telemetry data.")
@@ -1381,10 +1406,10 @@ def get_quali_telemetry(session, session_type="Q"):
 
     # Save to the compute_data directory
 
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
+    if not os.path.exists(computed_dir):
+        os.makedirs(computed_dir)
 
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+    with open(f"{computed_dir}/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
         pickle.dump(
             {
                 "results": qualifying_results,
@@ -1437,9 +1462,9 @@ def get_race_weekends_by_place(place):
     enable_cache()
     place=place.lower().strip()
     weekends=[]
-    current_year=date.today().year
+    current_year=get_season()
 
-    for year in range(2018,current_year): #Edit according to data availability (current data till last year)
+    for year in range(2018,current_year + 1):
         try:
             schedule=fastf1.get_event_schedule(year)
         except Exception:
@@ -1451,7 +1476,7 @@ def get_race_weekends_by_place(place):
 
             event_name=str(event["EventName"]).strip().lower()
             
-            if place==event_name:
+            if place in event_name or event_name in place:
                 weekends.append({
                     "round_number": event["RoundNumber"],
                     "event_name": event["EventName"],
@@ -1462,9 +1487,11 @@ def get_race_weekends_by_place(place):
                 })
     return weekends
 
-def get_all_unique_race_names(start_year=2018, end_year=2025): #update as necessary
+def get_all_unique_race_names(start_year=2018, end_year=None):
     "Return a list of all unique race locations"
     enable_cache()
+    if end_year is None:
+        end_year = get_season()
     race_names=set()
     
     for year in range(start_year, end_year+1):

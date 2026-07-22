@@ -16,6 +16,9 @@ class SettingsManager:
     DEFAULTS = {
         "cache_location": ".fastf1-cache",
         "computed_data_location": "computed_data",
+        "groq_api_key": "",
+        "enable_ai_commentary": True,
+        "ai_model": "llama-3.3-70b-versatile",
     }
 
     _instance: Optional["SettingsManager"] = None
@@ -120,6 +123,36 @@ class SettingsManager:
     def computed_data_location(self, value: str) -> None:
         """Set the computed data location."""
         self.set("computed_data_location", value)
+
+    @property
+    def groq_api_key(self) -> str:
+        """Get the Groq API key."""
+        return self.get("groq_api_key")
+
+    @groq_api_key.setter
+    def groq_api_key(self, value: str) -> None:
+        """Set the Groq API key."""
+        self.set("groq_api_key", value)
+
+    @property
+    def enable_ai_commentary(self) -> bool:
+        """Get whether AI commentary is enabled."""
+        return self.get("enable_ai_commentary")
+
+    @enable_ai_commentary.setter
+    def enable_ai_commentary(self, value: bool) -> None:
+        """Set whether AI commentary is enabled."""
+        self.set("enable_ai_commentary", value)
+
+    @property
+    def ai_model(self) -> str:
+        """Get the AI model name."""
+        return self.get("ai_model")
+
+    @ai_model.setter
+    def ai_model(self, value: str) -> None:
+        """Set the AI model name."""
+        self.set("ai_model", value)
 
 
 # Global convenience function to get the settings instance

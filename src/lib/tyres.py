@@ -8,6 +8,9 @@ tyre_compounds_ints = {
   "WET": 4,
 }
 
+# Reverse mapping: int -> name (used by race_event_detector)
+TYRE_COMPOUND_NAMES = {v: k for k, v in tyre_compounds_ints.items()}
+
 def get_tyre_compound_int(compound_str):
   return int(tyre_compounds_ints.get(compound_str.upper(), -1))
 

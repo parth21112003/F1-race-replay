@@ -12,3 +12,8 @@ computed_data/
 
 .DS_Store
 .idea
+
+# Ignore about folder and markdown files
+about/
+*.md
+!README.md
